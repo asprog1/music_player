@@ -1,39 +1,125 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { View, Text, SafeAreaView, StatusBar } from "react-native";
+import React, { useEffect, useState } from "react";
+import "../global.css";
+import Playing from "@/components/Playing";
+import MusicList from "@/components/MusicList";
+import { musicData } from "@/data/music";
+import { Audio, AVPlaybackStatus } from "expo-av";
+import { LinearGradient } from "expo-linear-gradient";
 
-import { useColorScheme } from '@/hooks/useColorScheme';
+type MusicItem = {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
+  artwork: string;
+};
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
+const index = () => {
+  const [tabSelected, settabSelected] = useState<"list" | "playing">("playing");
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [currentSongId, setCurrentSongId] = useState<number>(1);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [position, setPosition] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(1);
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
+    return sound
+      ? () => {
+          sound.unloadAsync();
+        }
+      : undefined;
+  }, [sound]);
 
-  if (!loaded) {
-    return null;
-  }
+  useEffect(() => {
+    let interval = null;
+
+    if (sound && isPlaying) {
+      interval = setInterval(async () => {
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded && !status.didJustFinish) {
+          setPosition(status.positionMillis);
+          setDuration(status.durationMillis || 1);
+        }
+      }, 500);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [sound, isPlaying]);
+
+  const play = async (music: MusicItem) => {
+    if (sound) await sound.unloadAsync();
+
+    const { sound: newSound } = await Audio.Sound.createAsync(
+      { uri: music.url },
+      { shouldPlay: true }
+    );
+
+    newSound.setOnPlaybackStatusUpdate((status: AVPlaybackStatus) => {
+      if (status.isLoaded && status.didJustFinish) {
+        //handle next
+      }
+    });
+
+    setSound(newSound);
+  };
+
+  const playSound = async (music: MusicItem) => {
+    setIsPlaying(true);
+    setCurrentSongId(Number(music.id));
+    await play(music);
+  };
+
+  const handleSeek = async (value: number) => {
+    if (sound) {
+      await sound.setPositionAsync(value);
+      setPosition(value);
+    }
+  };
+
+  const handlePlayPause = async () => {
+    if (!sound) return;
+    if (isPlaying) {
+      await sound.pauseAsync();
+    } else {
+      await sound.playAsync();
+    }
+    setIsPlaying(!isPlaying);
+  };
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <>
+      <LinearGradient
+        colors={["#111315", "#212528"]}
+        start={[0, 1]}
+        end={[0, 0]}
+        className="h-screen"
+      >
+        <SafeAreaView>
+          {tabSelected === "playing" ? (
+            <Playing
+              playing={musicData[currentSongId ? currentSongId - 1 : 1]}
+              settabSelected={settabSelected}
+              duration={duration}
+              position={position}
+              handleSeek={handleSeek}
+              handlePlayPause={handlePlayPause}
+            />
+          ) : (
+            <MusicList
+              music={musicData}
+              settabSelected={settabSelected}
+              playSound={playSound}
+              currentSongId={currentSongId}
+            />
+          )}
+        </SafeAreaView>
+      </LinearGradient>
+      <StatusBar barStyle={"light-content"} />
+    </>
   );
-}
+};
+
+export default index;
